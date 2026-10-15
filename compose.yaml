@@ -1,0 +1,14 @@
+services:
+  surge-subscription-service:
+    build: .
+    container_name: surge-subscription-service
+    restart: unless-stopped
+    ports:
+      - "${HOST_BIND:-0.0.0.0}:3080:3080"
+    environment:
+      PORT: "3080"
+    volumes:
+      - surge-data:/data
+
+volumes:
+  surge-data:

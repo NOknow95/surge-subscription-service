@@ -1,0 +1,3 @@
+interface:
+  display_name: "本机启动订阅代理"
+  short_description: "用 Node.js 运行本机服务"

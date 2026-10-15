@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Surge 订阅代理</title>
+  <rect width="64" height="64" rx="16" fill="#16815f"/>
+  <path d="M14 36 27 22l13 13 11-13" fill="none" stroke="#bdeed0" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"/>
+  <circle cx="14" cy="36" r="6" fill="#fff"/>
+  <circle cx="27" cy="22" r="6" fill="#fff"/>
+  <circle cx="40" cy="35" r="6" fill="#fff"/>
+  <circle cx="51" cy="22" r="6" fill="#fff"/>
+</svg>

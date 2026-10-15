@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>脚本编写指南 · Surge 订阅代理</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #20312b; background: #f4f7f4; line-height: 1.7; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 900px; margin: 0 auto; padding: 36px 22px 80px; }
+    .top { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:24px; }
+    .top a { color:#147653; }
+    h1 { font-size: clamp(30px,5vw,44px); line-height:1.2; margin:4px 0 12px; letter-spacing:-.03em; }
+    h2 { margin-top:42px; padding-bottom:8px; border-bottom:1px solid #dce5de; font-size:25px; }
+    h3 { margin-top:28px; font-size:19px; }
+    p, li { color:#43544c; }
+    .lead, .callout { background:#e8f4eb; border-radius:12px; padding:16px 18px; }
+    .callout.warning { background:#fff2e6; }
+    .quick { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:22px 0; }
+    .quick div { background:white; border:1px solid #e1e9e3; border-radius:12px; padding:14px; }
+    .quick strong { display:block; color:#147653; }
+    pre { overflow:auto; padding:17px; border-radius:11px; background:#1d2926; color:#e1f2e5; font:13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    code { background:#e8efea; padding:2px 5px; border-radius:5px; font: .92em ui-monospace, SFMono-Regular, Menlo, monospace; color:#164c38; }
+    pre code { background:transparent; padding:0; color:inherit; }
+    table { width:100%; border-collapse:collapse; background:white; border-radius:10px; overflow:hidden; }
+    th, td { text-align:left; vertical-align:top; padding:11px 13px; border-bottom:1px solid #e5ebe6; }
+    th { background:#edf3ee; }
+    .toc { columns:2; padding-left:22px; }
+    .toc a { color:#147653; }
+    .top a.button { text-decoration:none; background:#16815f; color:white; padding:9px 13px; border-radius:8px; white-space:nowrap; font-weight:700; }
+    @media(max-width:640px) { main { padding:25px 15px 55px; } .quick { grid-template-columns:1fr; } .toc { columns:1; } .top { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+<main>
+  <nav class="top"><a href="/">← 返回管理页</a><a class="button" href="/">打开管理页</a></nav>
+  <header>
+    <p>脚本参考文档</p>
+    <h1>Surge 转换脚本编写指南</h1>
+    <p class="lead">用 JavaScript 按顺序修改上游 Surge 配置。脚本以配置对象为输入并返回处理后的对象；服务再把结果序列化为完整 Surge 配置。</p>
+  </header>
+  <div class="quick">
+    <div><strong>导出形式</strong><code>module.exports = config =&gt; …</code></div>
+    <div><strong>执行顺序</strong>管理页列表从上到下</div>
+    <div><strong>同步脚本</strong>单个脚本最多运行 500 毫秒</div>
+  </div>
+  <h2>目录</h2>
+  <ol class="toc">
+    <li><a href="#flow">执行流程</a></li>
+    <li><a href="#api">可用配置对象</a></li>
+    <li><a href="#template">最小脚本模板</a></li>
+    <li><a href="#recipes">常用操作示例</a></li>
+    <li><a href="#sections">修改其他分节</a></li>
+    <li><a href="#preserve">保留内容与输出规则</a></li>
+    <li><a href="#errors">限制、失败与排查</a></li>
+    <li><a href="#workflow">在管理页中添加脚本</a></li>
+  </ol>
+
+  <h2 id="flow">1. 执行流程</h2>
+  <ol>
+    <li>Surge 请求服务的 <code>/subscription</code> 链接时，服务重新拉取上游完整配置。</li>
+    <li>服务解析配置分节，并把每个分节的非空行整理为行数组；注释会保留。</li>
+    <li>服务按管理页显示顺序运行所有已启用脚本。下一段脚本收到上一段脚本返回的配置。</li>
+    <li>服务把结果写成完整 Surge 配置，在开头加入指向服务订阅链接的 <code>#!MANAGED-CONFIG</code> 行并返回给 Surge。</li>
+  </ol>
+  <p>禁用脚本会跳过。调整脚本顺序会改变执行顺序；如果一个脚本改写了规则，后面的脚本看到的就是改写后的规则。</p>
+
+  <h2 id="api">2. 可用配置对象</h2>
+  <p>脚本接收一个 <code>config</code> 对象。可以直接用分节名读取或修改对应的行数组：</p>
+  <table>
+    <thead><tr><th>字段</th><th>含义</th><th>示例</th></tr></thead>
+    <tbody>
+      <tr><td><code>config['General']</code></td><td>直接访问对应分节的字符串数组。<code>config</code> 本身就是以分节名为键的对象。数组中的每一项对应一条非空配置行；注释会保留，空行会过滤。分节不存在时可先赋空数组创建。</td><td><code>config['General'].push('loglevel = notify')</code></td></tr>
+      <tr><td><code>config.rules</code></td><td><code>[Rule]</code> 分节的快捷入口，与 <code>config['Rule']</code> 指向同一数组。给它赋新数组也会替换 Rule 分节内容。</td><td><code>config.rules.unshift('FINAL,DIRECT')</code></td></tr>
+    </tbody>
+  </table>
+  <p>分节名称区分大小写。使用 <code>config['Rule']</code> 表示配置中的 <code>[Rule]</code>，使用 <code>config['Proxy Group']</code> 表示 <code>[Proxy Group]</code>。</p>
+
+  <h2 id="template">3. 最小脚本模板</h2>
+  <pre><code>module.exports = (config) =&gt; {
+  // 在这里读取或修改 config['General'] / config.rules
+
+  return config;
+};</code></pre>
+  <p>脚本必须通过 <code>module.exports</code> 导出函数，并返回配置对象。即使只检查配置、不做修改，也要返回 <code>config</code>。</p>
+
+  <h2 id="recipes">4. 常用操作示例</h2>
+  <h3>4.1 在现有规则前添加规则</h3>
+  <p>新规则先匹配，因此要确认它们不会遮蔽上游中更具体的规则。</p>
+  <pre><code>module.exports = (config) =&gt; {
+  config.rules = [
+    'DOMAIN,registry.hub.docker.com,节点选择',
+    'DOMAIN,registry-1.docker.io,节点选择',
+    'DOMAIN,auth.docker.io,节点选择',
+    'DOMAIN-SUFFIX,docker.io,节点选择',
+    'DOMAIN-SUFFIX,docker.com,节点选择',
+    ...(config.rules || []),
+  ];
+  return config;
+};</code></pre>
+
+  <h3>4.2 在规则末尾追加规则</h3>
+  <p>末尾追加的规则排在上游规则之后。若已有 <code>FINAL</code> 规则，放在它后面的规则通常不会被匹配；需要优先应用的规则应放在 <code>FINAL</code> 前面。</p>
+  <pre><code>module.exports = (config) =&gt; {
+  config.rules.push('DOMAIN-SUFFIX,example.org,DIRECT');
+  return config;
+};</code></pre>
+
+  <h3>4.3 把规则插入到 FINAL 前</h3>
+  <pre><code>module.exports = (config) =&gt; {
+  const rule = 'DOMAIN-SUFFIX,example.org,DIRECT';
+  const finalIndex = config.rules.findIndex(line =&gt; /^\s*FINAL,/i.test(line));
+
+  if (finalIndex === -1) {
+    config.rules.push(rule);
+  } else {
+    config.rules.splice(finalIndex, 0, rule);
+  }
+
+  return config;
+};</code></pre>
+
+  <h3>4.4 删除匹配的规则</h3>
+  <p>用 <code>filter</code> 返回保留项。下面示例只删除指定域名的规则；其他规则和注释仍会保留。</p>
+  <pre><code>module.exports = (config) =&gt; {
+  config.rules = config.rules.filter(line =&gt;
+    !line.startsWith('DOMAIN-SUFFIX,old.example,')
+  );
+  return config;
+};</code></pre>
+
+  <h3>4.5 替换一条规则</h3>
+  <pre><code>module.exports = (config) =&gt; {
+  config.rules = config.rules.map(line =&gt;
+    line === 'DOMAIN-SUFFIX,example.com,旧策略'
+      ? 'DOMAIN-SUFFIX,example.com,新策略'
+      : line
+  );
+  return config;
+};</code></pre>
+
+  <h3>4.6 避免重复添加</h3>
+  <pre><code>module.exports = (config) =&gt; {
+  const rule = 'DOMAIN-SUFFIX,example.org,DIRECT';
+  if (!config.rules.includes(rule)) config.rules.unshift(rule);
+  return config;
+};</code></pre>
+
+  <h3>4.7 新增 [Host] 主机映射</h3>
+  <p>上游没有 <code>[Host]</code> 分节时，可以先创建它再添加映射。左侧填写要匹配的主机名，右侧填写要映射到的 IP。</p>
+  <pre><code>module.exports = (config) =&gt; {
+  config['Host'] ||= [];
+  config['Host'].push('nas.example = 203.0.113.10');
+  return config;
+};</code></pre>
+
+  <h2 id="sections">5. 修改其他分节</h2>
+  <p>每个分节都是字符串行数组。示例：为 <code>[General]</code> 添加一个键值项，或创建一个原来不存在的分节。</p>
+  <pre><code>module.exports = (config) =&gt; {
+  config['General'] ||= [];
+  config['General'] = config['General'].filter(
+    line =&gt; !/^dns-server\s*=/i.test(line)
+  );
+  config['General'].push('dns-server = 223.5.5.5');
+
+  config['URL Rewrite'] ||= [];
+  config['URL Rewrite'].push(
+    '^https?://example\\.com https://www.example.com 302'
+  );
+
+  return config;
+};</code></pre>
+  <p>删除整个分节可用 <code>delete config['URL Rewrite']</code>。如果只是读取而不修改某个分节，原始分节内容会原样保留。</p>
+
+  <h2 id="preserve">6. 保留内容与输出规则</h2>
+  <ul>
+    <li>服务会保留没有被脚本改动的分节原文，包括分节内注释、内部空行和原有行顺序。</li>
+    <li>如果脚本修改某个分节，该分节会按脚本返回的行数组重写；数组中的空行会过滤，注释可照常保留。</li>
+    <li>最终配置中相邻的分节标题之间统一保留一个空行。</li>
+    <li>一项数组元素对应一行，不能包含换行符。分节名也不能包含方括号或换行符。</li>
+    <li>输入里原有的 <code>#!MANAGED-CONFIG</code> 会被服务替换为指向本服务的托管链接。</li>
+    <li>脚本若创建新的分节，服务会把它追加到配置末尾；新建 <code>Rule</code> 分节同样适用。</li>
+    <li>同名重复分节会聚合给脚本；如果修改了该分节，输出会合并到第一个同名分节位置。</li>
+  </ul>
+
+  <h2 id="errors">7. 限制、失败与排查</h2>
+  <ul>
+    <li>脚本只能同步执行；不要使用 <code>async</code>、Promise、网络请求、定时器或文件操作。</li>
+    <li>每段脚本最长运行 500 毫秒。脚本名称最多 100 字符，代码最多 100000 字符。</li>
+    <li>脚本必须返回配置对象；分节内容必须是字符串数组。</li>
+    <li>出错时，本次转换会整体失败，不会把部分转换结果发布出去。如果已有成功结果，服务返回上次成功的完整配置；管理页会显示错误。</li>
+    <li>JavaScript 脚本由管理员提供，应视为受信任代码。运行时使用的 Node <code>vm</code> 不构成安全隔离边界；不要粘贴来源不明的脚本。</li>
+  </ul>
+  <div class="callout warning"><strong>规则顺序会影响行为。</strong>尤其要检查规则与 <code>FINAL</code> 的相对位置。脚本保存后，可在管理页点击“立即拉取并转换”，再查看“上次成功配置”核对最终内容。</div>
+
+  <h2 id="workflow">8. 在管理页中添加脚本</h2>
+  <ol>
+    <li>在“转换脚本”区域点击“新增脚本”。</li>
+    <li>填写脚本名称，将模板替换为所需代码，确认“启用”已勾选。</li>
+    <li>保存后使用上下箭头调整执行顺序；可以编辑、禁用或删除脚本。</li>
+    <li>点击“立即拉取并转换”。成功后打开“查看上次成功配置”，检查规则、分节和托管链接。</li>
+  </ol>
+  <p>若转换失败，管理页的状态和错误信息会指出具体脚本及错误原因。修正后再次刷新即可。</p>
+</main>
+</body>
+</html>
