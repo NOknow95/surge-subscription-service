@@ -85,8 +85,13 @@ button.text-button { background: transparent; color: #16815f; padding: 0; }
 .script-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #e2e9e4; border-radius: 10px; padding: 12px; }
 .script-row strong { overflow-wrap: anywhere; }
 .script-row .meta { color: #718079; font-size: 12px; display: block; margin-top: 3px; }
+.script-row .meta .disabled-status { color: #b33b25; }
 .script-actions { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
 .script-actions button { padding: 7px 9px; font-size: 12px; background: #eaf1eb; color: #2a5742; }
+.script-actions button.enable-action { background: #16815f; color: #fff; }
+.script-actions button.enable-action:hover { background: #116b4f; }
+.script-actions button.disable-action { background: #fff0d2; color: #785000; }
+.script-actions button.disable-action:hover { background: #f8e2b3; }
 .script-actions button.delete { background: #f8e9e4; color: #a64720; }
 #script-form { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e9e4; }
 #append-form { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e9e4; }

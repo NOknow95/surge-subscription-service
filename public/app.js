@@ -186,6 +186,13 @@ function scriptButton(label, action, disabled = false, className = '') {
   return button;
 }
 
+function appendEnabledStatus(element, enabled) {
+  const status = document.createElement('span');
+  status.textContent = enabled ? '已启用' : '已禁用';
+  if (!enabled) status.className = 'disabled-status';
+  element.append(status);
+}
+
 // 视图代次：切换 profile、删除重建后旧响应不得再写入当前界面；未加载完成时表单不可用。
 function captureView() { return { profileId: currentProfileId, generation: viewGeneration }; }
 function isViewCurrent(view) { return view.generation === viewGeneration && view.profileId === currentProfileId; }
@@ -557,13 +564,14 @@ function render({ keepForm = false } = {}) {
     const row = document.createElement('div'); row.className = 'script-row';
     const description = document.createElement('div');
     const name = document.createElement('strong'); name.textContent = script.name;
-    const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = `${index + 1} · ${script.enabled ? '已启用' : '已禁用'}`;
+    const meta = document.createElement('span'); meta.className = 'meta'; meta.append(`${index + 1} · `);
+    appendEnabledStatus(meta, script.enabled);
     description.append(name, meta);
     const actions = document.createElement('div'); actions.className = 'script-actions';
     actions.append(
       scriptButton('↑', () => moveScript(script.id, 'up'), index === 0),
       scriptButton('↓', () => moveScript(script.id, 'down'), index === current.scripts.length - 1),
-      scriptButton(script.enabled ? '禁用' : '启用', () => updateScript(script.id, { enabled: !script.enabled })),
+      scriptButton(script.enabled ? '禁用' : '启用', () => updateScript(script.id, { enabled: !script.enabled }), false, script.enabled ? 'disable-action' : 'enable-action'),
       scriptButton('编辑', () => openEditor(script)),
       scriptButton('删除', () => deleteScript(script), false, 'delete'),
     );
@@ -578,13 +586,15 @@ function render({ keepForm = false } = {}) {
     const row = document.createElement('div'); row.className = 'script-row';
     const description = document.createElement('div');
     const name = document.createElement('strong'); name.textContent = append.name;
-    const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = `${index + 1} · [${append.section}] · ${append.overwrite ? '完全覆盖' : append.position === 'first' ? '最前' : '最后'} · ${append.enabled ? '已启用' : '已禁用'} · ${append.content.split('\n').length} 行`;
+    const meta = document.createElement('span'); meta.className = 'meta'; meta.append(`${index + 1} · [${append.section}] · ${append.overwrite ? '完全覆盖' : append.position === 'first' ? '最前' : '最后'} · `);
+    appendEnabledStatus(meta, append.enabled);
+    meta.append(` · ${append.content.split('\n').length} 行`);
     description.append(name, meta);
     const actions = document.createElement('div'); actions.className = 'script-actions';
     actions.append(
       scriptButton('↑', () => moveAppend(append.id, 'up'), index === 0),
       scriptButton('↓', () => moveAppend(append.id, 'down'), index === current.appends.length - 1),
-      scriptButton(append.enabled ? '禁用' : '启用', () => updateAppend(append.id, { enabled: !append.enabled })),
+      scriptButton(append.enabled ? '禁用' : '启用', () => updateAppend(append.id, { enabled: !append.enabled }), false, append.enabled ? 'disable-action' : 'enable-action'),
       scriptButton('编辑', () => openAppendEditor(append)),
       scriptButton('删除', () => deleteAppend(append), false, 'delete'),
     );
