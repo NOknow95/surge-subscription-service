@@ -4,9 +4,16 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 
 const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+// NODE_USE_ENV_PROXY / --use-env-proxy 只在较新的 Node 22.x 上存在，旧版本会直接忽略代理变量。
+const envProxySupported = (() => {
+  try { execFileSync(process.execPath, ['--use-env-proxy', '-e', ''], { stdio: 'ignore' }); return true; }
+  catch { return false; }
+})();
+const envProxySkip = envProxySupported ? false : `当前 Node ${process.version} 不支持 --use-env-proxy`;
 
 async function freePort() {
   const server = http.createServer();
@@ -22,9 +29,9 @@ async function tempDataDir(t) {
   return dataDir;
 }
 
-async function startService(t, dataDir) {
+async function startService(t, dataDir, extraEnv = {}) {
   const port = await freePort();
-  const child = spawn(process.execPath, ['src/server.js'], { cwd: path.resolve('.'), env: { ...process.env, PORT: String(port), DATA_DIR: dataDir }, stdio: 'ignore' });
+  const child = spawn(process.execPath, ['src/server.js'], { cwd: path.resolve('.'), env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ...extraEnv }, stdio: 'ignore' });
   const base = `http://127.0.0.1:${port}`;
   let ready = false;
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -759,4 +766,63 @@ test('并发：设置请求体读取期间删除并重建 profile，旧请求 40
   assert.equal(state.name, 'Swap2');
   assert.equal(state.settings.sourceUrl, '');
   assert.equal(state.settings.interval, 86400);
+});
+
+// 上游拉取可以通过 HTTPS_PROXY/HTTP_PROXY 走代理：NODE_USE_ENV_PROXY 启用 Node 内置的 env 代理支持。
+// Node 的 env 代理对 http/https 目标都用 CONNECT 隧道，所以这里用最小 CONNECT 代理模拟上游。
+async function startTunnelProxy(t, body) {
+  const targets = [];
+  const proxy = http.createServer((req, res) => { res.writeHead(400); res.end('expect CONNECT'); });
+  proxy.on('connect', (req, socket) => {
+    targets.push(req.url);
+    socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+    socket.once('data', () => {
+      const length = Buffer.byteLength(body);
+      socket.end(`HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${length}\r\nConnection: close\r\n\r\n${body}`);
+    });
+    socket.on('error', () => {});
+  });
+  await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve));
+  t.after(() => proxy.close());
+  return { url: `http://127.0.0.1:${proxy.address().port}`, targets };
+}
+
+test('设置代理环境变量后，上游拉取走代理', { skip: envProxySkip }, async t => {
+  const dataDir = await tempDataDir(t);
+  const proxy = await startTunnelProxy(t, '[General]\nloglevel = notify\n[Rule]\nDOMAIN,from-proxy.example,DIRECT\nFINAL,DIRECT\n');
+  const { base } = await startService(t, dataDir, {
+    NODE_USE_ENV_PROXY: '1', HTTP_PROXY: proxy.url, HTTPS_PROXY: proxy.url, NO_PROXY: '',
+  });
+  // 上游主机名不可解析：只有真正走了代理才可能拿到配置。
+  assert.equal((await json(base, '/api/settings', 'PUT', {
+    sourceUrl: 'http://upstream.not-resolvable.invalid/profile', publicBaseUrl: '', interval: 3600,
+    headers: [{ name: 'User-Agent', value: 'Surge' }],
+  })).status, 200);
+  const response = await fetch(`${base}/subscription/default`);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /DOMAIN,from-proxy\.example,DIRECT/);
+  assert.deepEqual(proxy.targets, ['upstream.not-resolvable.invalid:80']);
+  assert.equal((await (await fetch(`${base}/api/profiles/default/state`)).json()).lastError, null);
+});
+
+test('NO_PROXY 命中的上游不走代理', { skip: envProxySkip }, async t => {
+  const dataDir = await tempDataDir(t);
+  const proxy = await startTunnelProxy(t, '[General]\nloglevel = notify\n[Rule]\nDOMAIN,from-proxy.example,DIRECT\nFINAL,DIRECT\n');
+  const upstream = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('[General]\nloglevel = notify\n[Rule]\nDOMAIN,from-direct.example,DIRECT\nFINAL,DIRECT\n');
+  });
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  t.after(() => upstream.close());
+  const { base } = await startService(t, dataDir, {
+    NODE_USE_ENV_PROXY: '1', HTTP_PROXY: proxy.url, HTTPS_PROXY: proxy.url, NO_PROXY: '127.0.0.1,localhost',
+  });
+  assert.equal((await json(base, '/api/settings', 'PUT', {
+    sourceUrl: `http://127.0.0.1:${upstream.address().port}/profile`, publicBaseUrl: '', interval: 3600,
+    headers: [{ name: 'User-Agent', value: 'Surge' }],
+  })).status, 200);
+  const response = await fetch(`${base}/subscription/default`);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /DOMAIN,from-direct\.example,DIRECT/);
+  assert.deepEqual(proxy.targets, [], 'NO_PROXY 命中的上游不应经过代理');
 });

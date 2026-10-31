@@ -210,6 +210,7 @@ module.exports = (config) => {
 | 规则没生效 | 点「查看上次成功配置」搜一下自己的规则在不在；规则顺序会影响结果，注意别放在 `FINAL` 后面 |
 | 脚本报错 | 页面会指出是哪个脚本、第几行；先用「检查」按钮单独校验 |
 | 上游拉不下来 | 上游可能要求特定请求头，在「上游请求头」里补上；也可能是上游限制了 IP |
+| 上游连不上、页面提示 `ECONNRESET` / `ETIMEDOUT` | 多半是部署这台机器的网络到不了该域名（被运营商阻断等），按下面「[上游拉取走代理](#上游拉取走代理)」处理 |
 | 想换端口 | 改 `compose.yaml` 里的端口映射，或本地运行时设 `PORT` |
 
 **服务不会因为拉取失败就返回空配置**：拉不到上游时，会把上一次成功的结果继续给 Surge，只是会标记为过期，管理页同时显示错误。所以配置不会突然失效。
@@ -232,7 +233,26 @@ module.exports = (config) => {
 | `PORT` | `3080` | 服务监听端口 |
 | `DATA_DIR` | `./data`（本地运行） | 数据保存目录；Docker 镜像里是 `/data` |
 | `HOST_BIND` | `0.0.0.0` | 仅用于 `compose.yaml`，控制映射到宿主机的哪个地址，填 `127.0.0.1` 表示只允许本机访问 |
+| `HTTPS_PROXY` / `HTTP_PROXY` | — | 可选。设置后「拉取上游配置」会走这个 HTTP 代理；不设置则直连 |
+| `NO_PROXY` | `localhost,127.0.0.1` | 可选。命中这些主机的请求不走代理，逗号分隔 |
+| `NODE_USE_ENV_PROXY` | `1`（`compose.yaml` 里） | 让 Node 读取上面的代理变量；需要较新的 Node 22.x，旧版本会忽略这些变量 |
 | `NODE_ENV` | — | Docker 镜像里设为 `production`，一般不用管 |
+
+### 上游拉取走代理
+
+如果部署所在的网络到不了上游域名（页面错误里出现 `ECONNRESET`、`ETIMEDOUT`），可以让「拉取上游配置」这一步走代理：
+
+```sh
+# 代理跑在宿主机上；compose.yaml 已把 host.docker.internal 指向宿主机
+HTTPS_PROXY=http://host.docker.internal:7890 docker compose up -d
+```
+
+- 只影响拉取上游这一步；管理页和输出给 Surge 的配置都不经过代理。
+- 代理地址可以带账号密码：`http://user:pass@host:port`。
+- 走的是 HTTP 代理的 CONNECT 隧道；手上只有 SOCKS 代理时，用 clash / mihomo 的 `mixed-port` 或 gost 转成 HTTP 再用。
+- 本机或内网的上游用 `NO_PROXY` 排除，避免被绕进代理（`NO_PROXY=10.0.0.5,upstream.lan`）。
+- 变量也可以写进 `.env` / `.env.deploy`，或直接改 `compose.yaml` 的 `environment`；不用 Docker 时这样启动：`NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7890 node src/server.js`。
+- 验证办法：代理没启动时错误会变成 `fetch failed <- connect ECONNREFUSED 127.0.0.1:7890`，说明请求确实走了代理；仍然超时则说明代理自身也连不通上游。
 
 ### 数据保存在哪
 

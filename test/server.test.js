@@ -60,6 +60,15 @@ test('请求头、脚本顺序、持久化和失败缓存回退', async t => {
   const status = await (await fetch(`${base}/api/state`)).json();
   assert.match(status.lastError, /HTTP 503/);
   assert.equal(status.hasCache, true);
+  // 连接级失败：lastError 除 "fetch failed" 外还要带上 cause（如 ECONNREFUSED），否则无法判断失败层次。
+  const closedPort = await freePort();
+  assert.equal((await json(base, '/api/settings', 'PUT', { ...settings, sourceUrl: `http://127.0.0.1:${closedPort}/profile` })).status, 200);
+  const refused = await json(base, '/api/profiles/default/refresh', 'POST', {});
+  assert.equal(refused.status, 200);
+  assert.equal(refused.body.stale, true, '失败时应回退到上次成功配置');
+  assert.match(refused.body.lastError, /^fetch failed/);
+  assert.match(refused.body.lastError, /ECONNREFUSED/);
+  assert.equal((await (await fetch(`${base}/api/state`)).json()).lastError, refused.body.lastError);
   const saved = JSON.parse(await fs.readFile(path.join(dataDir, 'state.json'), 'utf8'));
   assert.equal(saved.version, 2);
   // 缓存保存的是规范订阅地址 /subscription/default，旧 /subscription 响应会改写为旧路径。

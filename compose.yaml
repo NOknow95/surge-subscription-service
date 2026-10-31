@@ -7,6 +7,15 @@ services:
       - "${HOST_BIND:-0.0.0.0}:3080:3080"
     environment:
       PORT: "3080"
+      # 让 fetch 读取下面几个代理变量；不填 HTTPS_PROXY/HTTP_PROXY 时行为与直连一致。
+      NODE_USE_ENV_PROXY: "1"
+      # 可选的出网代理，只影响「拉取上游配置」这一步。留空表示直连。
+      # 代理跑在宿主机上时填 host.docker.internal（见 extra_hosts）或宿主机局域网地址。
+      HTTPS_PROXY: "${HTTPS_PROXY:-}"
+      HTTP_PROXY: "${HTTP_PROXY:-}"
+      NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - surge-data:/data
 

@@ -375,6 +375,20 @@ function profileState(req, profile) {
   };
 }
 
+// fetch 对网络层错误只给出笼统的 "fetch failed"，真实原因（ECONNRESET、ENOTFOUND、TLS 错误等）在 error.cause 链里。
+// 这里把 cause 链拼进提示，方便在管理页直接判断失败层次；结果限制长度，避免异常携带超长内容。
+function describeError(error) {
+  const parts = [];
+  for (let current = error, depth = 0; current && depth < 4; current = current.cause, depth++) {
+    const message = typeof current === 'string' ? current : current.message;
+    const code = typeof current === 'object' && typeof current.code === 'string' ? current.code : '';
+    const detail = [code && !String(message || '').includes(code) ? code : '', message].filter(Boolean).join(': ');
+    if (detail && !parts.includes(detail)) parts.push(detail);
+  }
+  const text = parts.join(' <- ') || '未知错误';
+  return text.length > 300 ? `${text.slice(0, 297)}...` : text;
+}
+
 async function fetchUpstream(profile) {
   const url = profile.settings.sourceUrl;
   if (!url) throw new Error('请先填写上游订阅链接');
@@ -434,8 +448,11 @@ async function refresh(req, profile) {
   } catch (error) {
     // 删除/重建返回 404；配置在拉取期间更新返回 409，不把旧请求的结果当成当前配置。
     assertProfileVersion(profile, revision);
+    const message = describeError(error);
+    // 同一份提示既写入 lastError，也作为 502 响应体返回；非 Error 或只读抛出值无法带 message，忽略。
+    try { error.message = message; } catch {}
     if (profile.refreshToken === token) {
-      profile.lastError = error.message;
+      profile.lastError = message;
       await saveState();
       assertProfileVersion(profile, revision);
     }

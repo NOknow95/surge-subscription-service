@@ -212,6 +212,7 @@ module.exports = (config) => {
 | My rules are not applied | Click "View last successful config" and search for your rule; rule order matters — do not place it after `FINAL` |
 | A script fails | The page names the script and the line; use the "Check" button to validate it on its own |
 | The upstream cannot be fetched | The upstream may require specific headers — add them under "Upstream headers"; it may also be blocking your IP |
+| The upstream is unreachable and the page shows `ECONNRESET` / `ETIMEDOUT` | The deployment host most likely cannot reach that domain (blocked by the network operator). See [Fetching the upstream through a proxy](#fetching-the-upstream-through-a-proxy). |
 | I want another port | Change the port mapping in `compose.yaml`, or set `PORT` when running locally |
 
 **A failed fetch never returns an empty profile.** If the upstream is unreachable, the service keeps serving the last successful result, marked as stale, and shows the error on the admin page. So your config will not suddenly break.
@@ -234,7 +235,26 @@ module.exports = (config) => {
 | `PORT` | `3080` | Port the service listens on |
 | `DATA_DIR` | `./data` (local runs) | Where data is stored; inside the Docker image this is `/data` |
 | `HOST_BIND` | `0.0.0.0` | Used by `compose.yaml` only: which host address the port is bound to. `127.0.0.1` allows local access only. |
+| `HTTPS_PROXY` / `HTTP_PROXY` | — | Optional. When set, fetching the upstream config goes through this HTTP proxy; otherwise requests go out directly |
+| `NO_PROXY` | `localhost,127.0.0.1` | Optional. Comma-separated hosts that bypass the proxy |
+| `NODE_USE_ENV_PROXY` | `1` (set in `compose.yaml`) | Makes Node honour the proxy variables above; needs a recent Node 22.x and is ignored by older versions |
 | `NODE_ENV` | — | Set to `production` in the Docker image; you normally do not need to touch it |
+
+### Fetching the upstream through a proxy
+
+If the machine running this service cannot reach the upstream domain (the page shows `ECONNRESET` / `ETIMEDOUT`), route only the upstream fetch through a proxy:
+
+```sh
+# The proxy runs on the host; compose.yaml already points host.docker.internal at the host
+HTTPS_PROXY=http://host.docker.internal:7890 docker compose up -d
+```
+
+- Only the upstream fetch uses the proxy; the admin page and the config returned to Surge do not.
+- Credentials are allowed in the URL: `http://user:pass@host:port`.
+- This uses the proxy's HTTP `CONNECT` tunnel. With a SOCKS-only proxy, convert it with clash / mihomo `mixed-port` or gost.
+- Exclude local or intranet upstreams with `NO_PROXY` (for example `NO_PROXY=10.0.0.5,upstream.lan`).
+- The variables also work in `.env` / `.env.deploy` or directly under `environment` in `compose.yaml`. Without Docker: `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7890 node src/server.js`.
+- To verify: with the proxy stopped the error becomes `fetch failed <- connect ECONNREFUSED 127.0.0.1:7890`, which proves the request went through the proxy; a timeout instead means the proxy itself cannot reach the upstream.
 
 ### Where the data lives
 
